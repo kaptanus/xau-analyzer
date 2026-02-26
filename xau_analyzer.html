@@ -1,0 +1,1097 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>XAU · NY Pattern Analyzer</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  :root {
+    --bg0: #0d0d12;
+    --bg1: #111118;
+    --bg2: #18181f;
+    --bg3: #1e1e28;
+    --border: #252530;
+    --border2: #2e2e3c;
+    --text0: #e8e8f0;
+    --text1: #c8c8d8;
+    --text2: #a0a0b8;
+    --text3: #606078;
+    --green: #40c080;
+    --red:   #e05050;
+    --gold:  #d4a040;
+    --blue:  #6488ff;
+    --font:  'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg0); color: var(--text1); font-family: var(--font); font-size: 13px; }
+
+  /* ── LAYOUT ── */
+  #app { display: flex; height: 100vh; overflow: hidden; }
+  #sidebar {
+    width: 270px; min-width: 270px; background: var(--bg1);
+    border-right: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    overflow-y: auto; overflow-x: hidden;
+  }
+  #main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  #topbar {
+    background: var(--bg1); border-bottom: 1px solid var(--border);
+    padding: 10px 18px; display: flex; align-items: center; gap: 12px;
+    flex-shrink: 0;
+  }
+  #content { flex: 1; overflow-y: auto; padding: 16px 20px; }
+
+  /* ── SIDEBAR ── */
+  .sb-logo {
+    padding: 16px 16px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .sb-logo h1 { font-size: 0.9rem; color: var(--gold); font-weight: 700; letter-spacing: .06em; }
+  .sb-logo p  { font-size: 0.62rem; color: var(--text3); margin-top: 2px; }
+
+  .sb-section { padding: 12px 14px; border-bottom: 1px solid var(--border); }
+  .sb-label   { font-size: 0.58rem; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 8px; }
+
+  /* Upload area */
+  #drop-zone {
+    border: 1.5px dashed var(--border2);
+    border-radius: 8px;
+    padding: 14px 10px;
+    text-align: center;
+    cursor: pointer;
+    transition: border-color .2s, background .2s;
+    background: var(--bg2);
+  }
+  #drop-zone:hover, #drop-zone.drag-over {
+    border-color: var(--gold);
+    background: rgba(212,160,64,.05);
+  }
+  #drop-zone svg { color: var(--text3); margin-bottom: 6px; }
+  #drop-zone p { font-size: 0.65rem; color: var(--text3); line-height: 1.5; }
+  #drop-zone .hint { font-size: 0.58rem; color: var(--text3); opacity: .6; margin-top: 4px; }
+  #file-input { display: none; }
+  #csv-name { font-size: 0.62rem; color: var(--green); margin-top: 6px; text-align: center; word-break: break-all; }
+
+  /* Controls */
+  .ctrl-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .ctrl-row label { font-size: 0.62rem; color: var(--text3); white-space: nowrap; min-width: 80px; }
+  select, input[type=range] { width: 100%; }
+  select {
+    background: var(--bg2); border: 1px solid var(--border2);
+    color: var(--text1); border-radius: 4px; padding: 5px 8px;
+    font-family: var(--font); font-size: 0.68rem; cursor: pointer;
+    appearance: none;
+  }
+  select:focus { outline: 1px solid var(--gold); }
+  input[type=range] {
+    accent-color: var(--gold);
+    height: 3px;
+    cursor: pointer;
+  }
+  #topn-val { font-size: 0.68rem; color: var(--gold); min-width: 24px; text-align: right; }
+
+  /* Analyze button */
+  #btn-analyze {
+    width: 100%; padding: 9px;
+    background: var(--gold); color: #000;
+    border: none; border-radius: 6px;
+    font-family: var(--font); font-size: 0.75rem; font-weight: 700;
+    cursor: pointer; transition: opacity .15s, transform .1s;
+    letter-spacing: .04em;
+  }
+  #btn-analyze:hover  { opacity: .88; }
+  #btn-analyze:active { transform: scale(.98); }
+  #btn-analyze:disabled { opacity: .35; cursor: not-allowed; }
+
+  /* Progress */
+  #progress-bar-wrap {
+    display: none; margin-top: 8px;
+    background: var(--bg2); border-radius: 4px; height: 3px; overflow: hidden;
+  }
+  #progress-bar { height: 100%; background: var(--gold); width: 0%; transition: width .1s; }
+  #progress-text { font-size: 0.6rem; color: var(--text3); margin-top: 4px; text-align: center; }
+
+  /* Query stats */
+  .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; }
+  .stat-box {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 6px; padding: 7px 8px;
+  }
+  .stat-box .s-lbl { font-size: 0.55rem; color: var(--text3); text-transform: uppercase; letter-spacing: .07em; }
+  .stat-box .s-val { font-size: 0.82rem; font-weight: 700; color: var(--text0); margin-top: 2px; }
+  .stat-box.full { grid-column: 1 / -1; }
+
+  /* SL/TP table */
+  .sltp-header {
+    display: flex; gap: 4px; padding: 0 6px; margin-bottom: 4px;
+    font-size: 0.56rem; color: var(--text3); text-transform: uppercase; letter-spacing: .08em;
+  }
+  .sltp-header .col-name { flex: 1; }
+  .sltp-header .col-val  { min-width: 58px; text-align: right; }
+  .sltp-row {
+    display: flex; align-items: center; gap: 4px;
+    padding: 5px 6px; border: 1px solid var(--border);
+    border-radius: 4px; margin-bottom: 3px;
+    background: var(--bg2); font-size: 0.68rem;
+  }
+  .sltp-row.best { background: rgba(64,192,128,.04); border-color: rgba(64,192,128,.25); }
+  .sltp-row .star { color: var(--gold); margin-right: 2px; font-size: .75rem; }
+  .sltp-row .nostar { display: inline-block; width: 14px; }
+  .sltp-row .col-name { flex: 1; color: var(--text3); font-size: 0.6rem; }
+  .sltp-row .sl  { min-width: 58px; text-align: right; font-weight: 700; color: var(--red); }
+  .sltp-row .tp2 { min-width: 58px; text-align: right; font-weight: 700; color: var(--green); }
+  .sltp-row .tp3 { min-width: 58px; text-align: right; font-weight: 700; color: #80ffcc; }
+
+  /* ── MAIN CONTENT ── */
+  .pred-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 16px 20px; margin-bottom: 16px;
+    border-left-width: 4px;
+  }
+  .pred-card .sub   { font-size: 0.6rem; color: var(--text3); text-transform: uppercase; letter-spacing: .1em; margin-bottom: 6px; }
+  .pred-card .dir   { font-size: 1.8rem; font-weight: 700; margin-bottom: 4px; }
+  .pred-card .meta  { font-size: 0.8rem; color: var(--text2); }
+  .pred-card .meta .hi { font-weight: 700; }
+
+  .metrics-row { display: flex; gap: 10px; margin-bottom: 16px; }
+  .metric-box {
+    flex: 1; background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 10px 12px; text-align: center;
+  }
+  .metric-box .m-label { font-size: 0.58rem; color: var(--text3); text-transform: uppercase; letter-spacing: .08em; }
+  .metric-box .m-value { font-size: 1.4rem; font-weight: 700; margin: 4px 0 2px; }
+  .metric-box .m-pct   { font-size: 0.68rem; color: var(--text3); }
+
+  .section-title {
+    font-size: 0.7rem; color: var(--text2); font-weight: 700;
+    text-transform: uppercase; letter-spacing: .08em;
+    margin-bottom: 10px; padding-bottom: 6px;
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .section-title .cnt { color: var(--text3); font-weight: 400; font-size: 0.65rem; }
+
+  /* Cards grid */
+  #cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    margin-bottom: 16px;
+  }
+  .match-card {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-left: 3px solid var(--border);
+    border-radius: 8px; padding: 10px 12px;
+    cursor: pointer; transition: border-color .15s, background .15s;
+    font-size: 0.65rem; line-height: 1.7;
+    color: var(--text2); user-select: none;
+  }
+  .match-card:hover    { border-color: var(--gold) !important; background: rgba(212,160,64,.05); }
+  .match-card.selected { border-color: var(--gold) !important; background: rgba(212,160,64,.08); }
+  .match-card .c-date  { font-weight: 700; color: var(--text0); }
+  .match-card .c-sim   { color: var(--gold); }
+  .match-card .c-dir   { font-weight: 700; }
+  .match-card .c-dir.up   { color: var(--green); }
+  .match-card .c-dir.down { color: var(--red); }
+  .match-card .c-dir.neu  { color: var(--text3); }
+  .match-card .c-move { }
+
+  /* Detail panel */
+  #detail-panel { display: none; margin-top: 8px; }
+  .detail-header {
+    background: var(--bg2); border: 1px solid var(--border);
+    border-radius: 10px; padding: 12px 16px; margin-bottom: 10px;
+    display: flex; gap: 28px; align-items: center;
+    border-left-width: 4px;
+  }
+  .detail-header .dh-main { }
+  .detail-header .dh-date { font-size: 0.58rem; color: var(--text3); margin-bottom: 4px; font-family: var(--font); }
+  .detail-header .dh-dir  { font-size: 1.2rem; font-weight: 700; }
+  .detail-header .dh-stats { display: flex; gap: 22px; font-size: 0.72rem; color: var(--text2); font-family: var(--font); }
+  .detail-header .dh-stats span b { font-weight: 700; }
+
+  /* Toast */
+  #toast {
+    position: fixed; bottom: 20px; right: 20px;
+    background: var(--bg3); border: 1px solid var(--border2);
+    border-radius: 8px; padding: 10px 16px;
+    font-size: 0.72rem; color: var(--text1);
+    box-shadow: 0 4px 20px rgba(0,0,0,.5);
+    opacity: 0; transition: opacity .2s;
+    pointer-events: none; z-index: 999;
+    max-width: 300px;
+  }
+  #toast.show { opacity: 1; }
+  #toast.err  { border-color: var(--red); color: var(--red); }
+
+  /* Empty state */
+  #empty-state {
+    display: flex; flex-direction: column; align-items: center;
+    justify-content: center; height: calc(100vh - 60px);
+    color: var(--text3); text-align: center;
+  }
+  #empty-state .icon   { font-size: 2.5rem; margin-bottom: 14px; }
+  #empty-state .title  { font-size: 1rem; color: var(--text2); margin-bottom: 8px; }
+  #empty-state .steps  { font-size: 0.68rem; line-height: 2.2; }
+  #empty-state .step   { display: flex; align-items: center; gap: 10px; }
+  #empty-state .step-n { width: 22px; height: 22px; border-radius: 50%; border: 1px solid var(--border2);
+                          display: flex; align-items: center; justify-content: center;
+                          font-size: 0.62rem; color: var(--gold); flex-shrink: 0; }
+
+  hr.divider { border: none; border-top: 1px solid var(--border); margin: 14px 0; }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border2); border-radius: 3px; }
+
+  /* Topbar */
+  #topbar .tb-title { font-size: 0.72rem; color: var(--text2); }
+  #topbar .tb-date  { font-size: 0.78rem; color: var(--gold); font-weight: 700; }
+  #topbar .tb-sep   { color: var(--border2); }
+  #topbar .tb-days  { font-size: 0.68rem; color: var(--text3); }
+  #topbar .tb-badge {
+    font-size: 0.6rem; padding: 2px 8px;
+    border-radius: 20px; font-weight: 700;
+    letter-spacing: .06em;
+  }
+  #topbar .tb-badge.up   { background: rgba(64,192,128,.15); color: var(--green); }
+  #topbar .tb-badge.down { background: rgba(224,80,80,.15);  color: var(--red); }
+  #topbar .tb-badge.neu  { background: rgba(96,96,120,.15);  color: var(--text3); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ────────────────── SIDEBAR ────────────────── -->
+  <aside id="sidebar">
+    <div class="sb-logo">
+      <h1>◈ XAU · NY Analyzer</h1>
+      <p>XAU/USD NY Seansı Pattern Eşleştirme</p>
+    </div>
+
+    <!-- CSV Upload -->
+    <div class="sb-section">
+      <div class="sb-label">Veri Kaynağı</div>
+      <div id="drop-zone" onclick="document.getElementById('file-input').click()">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+          <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+          <polyline points="17 8 12 3 7 8"/>
+          <line x1="12" y1="3" x2="12" y2="15"/>
+        </svg>
+        <p>CSV dosyasını sürükle veya tıkla</p>
+        <div class="hint">FOREXCOM XAU/USD 1H formatı</div>
+      </div>
+      <input type="file" id="file-input" accept=".csv">
+      <div id="csv-name"></div>
+    </div>
+
+    <!-- Date + TopN -->
+    <div class="sb-section" id="ctrl-section" style="display:none">
+      <div class="sb-label">Analiz Ayarları</div>
+      <div class="ctrl-row">
+        <label>Tarih</label>
+        <select id="date-select"></select>
+      </div>
+      <div class="ctrl-row" style="margin-top:6px">
+        <label>Top-N</label>
+        <input type="range" id="topn-slider" min="5" max="30" value="15"
+               oninput="document.getElementById('topn-val').textContent=this.value">
+        <span id="topn-val">15</span>
+      </div>
+      <button id="btn-analyze" onclick="runAnalysis()" style="margin-top:10px">
+        ▶ ANALİZ ET
+      </button>
+      <div id="progress-bar-wrap">
+        <div id="progress-bar"></div>
+      </div>
+      <div id="progress-text"></div>
+    </div>
+
+    <!-- Query Stats -->
+    <div class="sb-section" id="stats-section" style="display:none">
+      <div class="sb-label">Pre-NY Özet</div>
+      <div class="stat-grid">
+        <div class="stat-box">
+          <div class="s-lbl">Entry</div>
+          <div class="s-val" id="s-entry">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="s-lbl">Range</div>
+          <div class="s-val" id="s-range">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="s-lbl">ATR</div>
+          <div class="s-val" id="s-atr">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="s-lbl">Mum</div>
+          <div class="s-val" id="s-mum">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="s-lbl">Asya</div>
+          <div class="s-val" id="s-asia">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="s-lbl">London</div>
+          <div class="s-val" id="s-london">—</div>
+        </div>
+        <div class="stat-box full">
+          <div class="s-lbl">RSI</div>
+          <div class="s-val" id="s-rsi">—</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- SL/TP Table -->
+    <div class="sb-section" id="sltp-section" style="display:none">
+      <div class="sb-label">SL / TP Seviyeleri</div>
+      <div class="sltp-header">
+        <span class="col-name">METOD</span>
+        <span class="col-val">SL</span>
+        <span class="col-val">TP 1:2</span>
+        <span class="col-val">TP 1:3</span>
+      </div>
+      <div id="sltp-rows"></div>
+    </div>
+  </aside>
+
+  <!-- ────────────────── MAIN ────────────────── -->
+  <div id="main">
+    <div id="topbar">
+      <span class="tb-title">XAU/USD · NY Pattern Analyzer</span>
+      <span class="tb-sep">|</span>
+      <span class="tb-date" id="tb-date">—</span>
+      <span class="tb-days" id="tb-days"></span>
+      <span class="tb-badge" id="tb-badge" style="display:none"></span>
+    </div>
+
+    <div id="content">
+      <!-- Empty state -->
+      <div id="empty-state">
+        <div class="icon">◈</div>
+        <div class="title">XAU/USD NY Pattern Analyzer</div>
+        <div class="steps">
+          <div class="step"><div class="step-n">1</div><span>Sol panelden CSV dosyasını yükle</span></div>
+          <div class="step"><div class="step-n">2</div><span>Analiz etmek istediğin tarihi seç</span></div>
+          <div class="step"><div class="step-n">3</div><span>Top-N sayısını ayarla (5–30)</span></div>
+          <div class="step"><div class="step-n">4</div><span><b style="color:var(--gold)">ANALİZ ET</b> butonuna bas</span></div>
+        </div>
+      </div>
+
+      <!-- Results (hidden until analysis) -->
+      <div id="results" style="display:none">
+        <!-- Prediction card -->
+        <div class="pred-card" id="pred-card">
+          <div class="sub">NY Seansı · Geçmiş Pattern Analizi</div>
+          <div class="dir" id="pred-dir">—</div>
+          <div class="meta" id="pred-meta"></div>
+        </div>
+
+        <!-- Metrics -->
+        <div class="metrics-row">
+          <div class="metric-box">
+            <div class="m-label">↑ Yukarı</div>
+            <div class="m-value" style="color:var(--green)" id="m-up">0</div>
+            <div class="m-pct" id="m-up-pct">—</div>
+          </div>
+          <div class="metric-box">
+            <div class="m-label">↓ Aşağı</div>
+            <div class="m-value" style="color:var(--red)" id="m-down">0</div>
+            <div class="m-pct" id="m-down-pct">—</div>
+          </div>
+          <div class="metric-box">
+            <div class="m-label">— Nötr</div>
+            <div class="m-value" style="color:var(--text3)" id="m-neu">0</div>
+            <div class="m-pct" id="m-neu-pct">—</div>
+          </div>
+        </div>
+
+        <hr class="divider">
+
+        <!-- Main chart -->
+        <div class="section-title" id="main-chart-title">Grafik</div>
+        <div id="main-chart" style="margin-bottom:16px"></div>
+
+        <hr class="divider">
+
+        <!-- Cards grid -->
+        <div class="section-title">
+          Benzer Günler
+          <span class="cnt" id="cards-count"></span>
+        </div>
+        <div id="cards-grid"></div>
+
+        <!-- Detail panel -->
+        <div id="detail-panel">
+          <hr class="divider">
+          <div class="detail-header" id="detail-header">
+            <div class="dh-main">
+              <div class="dh-date" id="dh-date">—</div>
+              <div class="dh-dir" id="dh-dir">—</div>
+            </div>
+            <div class="dh-stats" id="dh-stats"></div>
+          </div>
+          <div id="detail-chart"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ═══════════════════════════════════════════════════════
+// ENGINE — Tüm hesaplamalar client-side (browser'da)
+// ═══════════════════════════════════════════════════════
+
+// ── DST-aware NY açılış saati (TR saat) ──
+function getNyOpen(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  function nthSunday(month, n) {
+    let count = 0;
+    for (let day = 1; day <= 31; day++) {
+      try {
+        const dt = new Date(y, month - 1, day);
+        if (dt.getMonth() !== month - 1) break;
+        if (dt.getDay() === 0) { count++; if (count === n) return day; }
+      } catch(e) { break; }
+    }
+    return 1;
+  }
+  const cd = m * 100 + d;
+  const dstStart = 300 + nthSunday(3, 2);
+  const dstEnd   = 1100 + nthSunday(11, 1);
+  return (cd >= dstStart && cd < dstEnd) ? 15 : 16;
+}
+
+// ── CSV Parse ──
+function parseCsv(text) {
+  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+  if (lines.length < 2) return [];
+
+  const header = lines[0].split(',').map(h => h.trim().replace(/^\uFEFF/, ''));
+  const idx = {};
+  header.forEach((h, i) => idx[h] = i);
+
+  const rows = [];
+  for (let i = 1; i < lines.length; i++) {
+    const parts = lines[i].split(',');
+    const ts = parseFloat(parts[idx['time']]);
+    if (!ts || ts < 1_000_000_000) continue;
+
+    // UTC → TR (+3)
+    const utcSec = ts + 3 * 3600;
+    const dt = new Date(utcSec * 1000);
+    const date = dt.toISOString().slice(0, 10);
+    const hour = dt.getUTCHours();
+    const wd   = dt.getUTCDay() === 0 ? 6 : dt.getUTCDay() - 1; // 0=Pzt
+
+    const o = parseFloat(parts[idx['open']]);
+    const h_ = parseFloat(parts[idx['high']]);
+    const l  = parseFloat(parts[idx['low']]);
+    const c  = parseFloat(parts[idx['close']]);
+    if (!o || o <= 0 || isNaN(o)) continue;
+
+    const rsiRaw = idx['RSI'] !== undefined ? parts[idx['RSI']] : '';
+    const rsi = rsiRaw && rsiRaw.trim() ? parseFloat(rsiRaw) : NaN;
+
+    rows.push({ ts, date, hour, wd, open: o, high: h_, low: l, close: c, rsi });
+  }
+  return rows;
+}
+
+// ── DTW distance ──
+function dtwDist(a, b) {
+  const na = Math.min(a.length, 16);
+  const nb = Math.min(b.length, 16);
+  const A = a.slice(0, na), B = b.slice(0, nb);
+  const INF = Infinity;
+  const M = Array.from({length: na + 1}, () => new Float32Array(nb + 1).fill(INF));
+  M[0][0] = 0;
+  for (let i = 1; i <= na; i++) {
+    for (let j = 1; j <= nb; j++) {
+      const cost = Math.abs(A[i-1] - B[j-1]);
+      M[i][j] = cost + Math.min(M[i-1][j], M[i][j-1], M[i-1][j-1]);
+    }
+  }
+  return M[na][nb] / Math.max(na, nb);
+}
+
+// ── DB build ──
+function buildDb(rows) {
+  const byDate = {};
+  for (const r of rows) {
+    if (!byDate[r.date]) byDate[r.date] = [];
+    byDate[r.date].push(r);
+  }
+
+  const db = [];
+  const DAYS = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+
+  for (const date of Object.keys(byDate).sort()) {
+    const grp = byDate[date].sort((a, b) => a.hour - b.hour);
+    const nyo = getNyOpen(date);
+    const pre = grp.filter(r => r.hour < nyo && r.hour !== 1);
+    const ny  = grp.filter(r => r.hour >= nyo);
+
+    if (pre.length < 8 || ny.length < 3) continue;
+
+    const po = pre[0].open;
+    const ph = Math.max(...pre.map(r => r.high));
+    const pl = Math.min(...pre.map(r => r.low));
+    const pc = pre[pre.length - 1].close;
+    const pr = ph - pl;
+    if (pr < 0.5) continue;
+
+    const cn = pre.map(r => (r.close - po) / pr * 100);
+
+    const asia   = pre.filter(r => r.hour < 10);
+    const london = pre.filter(r => r.hour >= 10);
+    const ad = asia.length > 1
+      ? (asia[asia.length-1].close - asia[0].open) / asia[0].open * 100 : 0;
+    const ld = london.length > 1
+      ? (london[london.length-1].close - london[0].open) / london[0].open * 100 : 0;
+
+    // ATR
+    let trs = [], pv = null;
+    for (const r of pre) {
+      let t = r.high - r.low;
+      if (pv !== null) t = Math.max(t, Math.abs(r.high - pv), Math.abs(r.low - pv));
+      trs.push(t); pv = r.close;
+    }
+    const atr = trs.reduce((a, b) => a + b, 0) / trs.length;
+
+    const rsiVals = pre.map(r => r.rsi).filter(v => !isNaN(v));
+    const rsiLast = rsiVals.length ? rsiVals[rsiVals.length - 1] : NaN;
+
+    const nyOpenPrice = ny[0].open;
+    const nyClose  = ny[ny.length - 1].close;
+    const nyHigh   = Math.max(...ny.map(r => r.high));
+    const nyLow    = Math.min(...ny.map(r => r.low));
+    const nyPct    = (nyClose - nyOpenPrice) / nyOpenPrice * 100;
+    const nyRange  = nyHigh - nyLow;
+    const nyDir    = nyPct > 0.05 ? 'up' : (nyPct < -0.05 ? 'down' : 'neutral');
+
+    db.push({
+      d: date, wd: grp[0].wd, nyo,
+      po: +po.toFixed(2), ph: +ph.toFixed(2), pl: +pl.toFixed(2),
+      pc: +pc.toFixed(2), pr: +pr.toFixed(2), atr: +atr.toFixed(2),
+      ad: +ad.toFixed(3), ld: +ld.toFixed(3),
+      cn, rsi: rsiLast,
+      nyd: nyDir, nyp: +nyPct.toFixed(3), nyr: +nyRange.toFixed(2),
+      nyo_p: +nyOpenPrice.toFixed(2),
+      nyh: +nyHigh.toFixed(2), nyl: +nyLow.toFixed(2), nyc: +nyClose.toFixed(2),
+      pre_ohlc: pre.map(r => ({h: r.hour, o: r.open, hi: r.high, lo: r.low, c: r.close})),
+      ny_ohlc:  ny.map(r  => ({h: r.hour, o: r.open, hi: r.high, lo: r.low, c: r.close})),
+    });
+  }
+  return db;
+}
+
+// ── SL/TP hesapla ──
+function calcLevels(entry, direction, pl, ph, atr, avgRange) {
+  const structSl = direction === 'up' ? (entry - pl + 3) : (ph - entry + 3);
+  const candidates = [
+    {name: 'A · Range×0.40', sd: avgRange * 0.40, best: false},
+    {name: 'B · Range×0.60', sd: avgRange * 0.60, best: false},
+    {name: 'C · Yapısal',    sd: structSl,         best: false},
+    {name: 'D · ATR×1.5 ★', sd: atr * 1.5,         best: true},
+  ];
+  return candidates.map(({name, sd, best}) => {
+    const sl  = direction === 'up' ? entry - sd : entry + sd;
+    const tp2 = direction === 'up' ? entry + sd * 2 : entry - sd * 2;
+    const tp3 = direction === 'up' ? entry + sd * 3 : entry - sd * 3;
+    return {name, sl: +sl.toFixed(2), tp2: +tp2.toFixed(2), tp3: +tp3.toFixed(2), best};
+  });
+}
+
+// ── Find matches (async with progress updates) ──
+async function findMatches(date, db, rows, topN, onProgress) {
+  const nyo = getNyOpen(date);
+  const dayRows = rows.filter(r => r.date === date).sort((a, b) => a.hour - b.hour);
+  if (!dayRows.length) return null;
+
+  const pre = dayRows.filter(r => r.hour < nyo && r.hour !== 1);
+  const ny  = dayRows.filter(r => r.hour >= nyo);
+  if (pre.length < 5) return null;
+
+  const po = pre[0].open;
+  const ph = Math.max(...pre.map(r => r.high));
+  const pl = Math.min(...pre.map(r => r.low));
+  const pc = pre[pre.length - 1].close;
+  const pr = ph - pl;
+  if (pr < 0.1) return null;
+
+  const cn = pre.map(r => (r.close - po) / pr * 100);
+
+  const asia   = pre.filter(r => r.hour < 10);
+  const london = pre.filter(r => r.hour >= 10);
+  const ad = asia.length > 1
+    ? (asia[asia.length-1].close - asia[0].open) / asia[0].open * 100 : 0;
+  const ld = london.length > 1
+    ? (london[london.length-1].close - london[0].open) / london[0].open * 100 : 0;
+
+  let trs = [], pv = null;
+  for (const r of pre) {
+    let t = r.high - r.low;
+    if (pv !== null) t = Math.max(t, Math.abs(r.high - pv), Math.abs(r.low - pv));
+    trs.push(t); pv = r.close;
+  }
+  const atr = trs.reduce((a, b) => a + b, 0) / trs.length;
+
+  const qWd = dayRows[0].wd;
+  const rsiVals = pre.map(r => r.rsi).filter(v => !isNaN(v));
+  const rsiLast = rsiVals.length ? rsiVals[rsiVals.length - 1] : NaN;
+
+  // Skorla — async yield her 100 günde bir
+  const scored = [];
+  for (let i = 0; i < db.length; i++) {
+    const p = db[i];
+    if (p.d >= date) continue;
+    const dist  = dtwDist(cn, p.cn);
+    const sDtw  = 1 / (1 + dist / 15);
+    const sA    = 1 - Math.min(1, Math.abs(ad - p.ad) / 0.4);
+    const sL    = 1 - Math.min(1, Math.abs(ld - p.ld) / 0.4);
+    const wdB   = (new Date(p.d + 'T12:00:00Z').getUTCDay() === 0 ? 6 :
+                   new Date(p.d + 'T12:00:00Z').getUTCDay() - 1) === qWd ? 0.04 : 0;
+    const nyB   = p.nyo === nyo ? 0.03 : 0;
+    const score = sDtw * 0.62 + sA * 0.17 + sL * 0.17 + wdB + nyB;
+    scored.push([score, p]);
+
+    // UI'nin donmaması için async yield
+    if (i % 100 === 0) {
+      onProgress && onProgress(i, db.length);
+      await new Promise(r => setTimeout(r, 0));
+    }
+  }
+  onProgress && onProgress(db.length, db.length);
+
+  scored.sort((a, b) => b[0] - a[0]);
+  const top = scored.slice(0, topN);
+
+  if (!top.length) return null;
+
+  const up      = top.filter(([, p]) => p.nyd === 'up').length;
+  const down    = top.filter(([, p]) => p.nyd === 'down').length;
+  const neutral = top.filter(([, p]) => p.nyd === 'neutral').length;
+  const total   = top.length;
+
+  let direction, confidence;
+  if (up >= down && up >= neutral)        { direction = 'up';      confidence = Math.round(up / total * 100); }
+  else if (down > up && down >= neutral)  { direction = 'down';    confidence = Math.round(down / total * 100); }
+  else                                    { direction = 'neutral'; confidence = Math.round(neutral / total * 100); }
+
+  const avgMove  = +(top.reduce((s, [, p]) => s + p.nyp, 0) / total).toFixed(2);
+  const avgRange = +(top.reduce((s, [, p]) => s + p.nyr, 0) / total).toFixed(2);
+  const levels   = direction !== 'neutral' ? calcLevels(pc, direction, pl, ph, atr, avgRange) : [];
+
+  const DAYS = ['Pzt','Sal','Çar','Per','Cum','Cmt','Paz'];
+  return {
+    query: {
+      date, weekday: DAYS[qWd], ny_open: nyo,
+      entry: +pc.toFixed(2), pre_range: +pr.toFixed(2),
+      atr: +atr.toFixed(2), candle_count: pre.length,
+      asia_pct: +ad.toFixed(3), london_pct: +ld.toFixed(3),
+      rsi: isNaN(rsiLast) ? null : +rsiLast.toFixed(1),
+      pre_ohlc: pre.map(r => ({h: r.hour, o: r.open, hi: r.high, lo: r.low, c: r.close})),
+      ny_ohlc:  ny.map(r  => ({h: r.hour, o: r.open, hi: r.high, lo: r.low, c: r.close})),
+    },
+    prediction: { direction, confidence, up_count: up, down_count: down,
+                  neutral_count: neutral, total, avg_move_pct: avgMove, avg_range: avgRange },
+    levels,
+    matches: top.map(([score, p]) => ({
+      date: p.d, weekday: DAYS[p.wd],
+      similarity: +(score * 100).toFixed(1),
+      direction: p.nyd, ny_move_pct: p.nyp, ny_range: p.nyr,
+      ny_open: p.nyo, ny_open_price: p.nyo_p,
+      ny_high: p.nyh, ny_low: p.nyl, ny_close: p.nyc,
+      pre_open: p.po, pre_range: p.pr,
+      pre_ohlc: p.pre_ohlc, ny_ohlc: p.ny_ohlc,
+    })).filter(m => m.similarity >= 55),
+  };
+}
+
+
+// ═══════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════
+let state = { rows: null, db: null, result: null, selectedCard: null };
+
+
+// ═══════════════════════════════════════════════════════
+// CHART HELPERS (Plotly)
+// ═══════════════════════════════════════════════════════
+const CHART_LAYOUT_BASE = {
+  paper_bgcolor: '#111118', plot_bgcolor: '#18181f',
+  margin: {l: 60, r: 20, t: 30, b: 30},
+  showlegend: false,
+  font: {family: "'JetBrains Mono', monospace"},
+  xaxis: {
+    showgrid: false, zeroline: false, rangeslider: {visible: false},
+    tickfont: {color: '#606078', size: 9}, color: '#606078',
+    fixedrange: false,
+  },
+  yaxis: {
+    showgrid: true, gridcolor: 'rgba(255,255,255,0.04)',
+    zeroline: false, tickfont: {color: '#606078', size: 9},
+    color: '#606078', side: 'right', fixedrange: false,
+  },
+  dragmode: 'zoom',
+};
+
+function makeCandleFig(ohlcList, nyStartIdx, entry, levels, title, height) {
+  const hours  = ohlcList.map(c => String(c.h).padStart(2, '0') + ':00');
+  const opens  = ohlcList.map(c => c.o);
+  const highs  = ohlcList.map(c => c.hi);
+  const lows   = ohlcList.map(c => c.lo);
+  const closes = ohlcList.map(c => c.c);
+
+  const trace = {
+    type: 'candlestick',
+    x: hours, open: opens, high: highs, low: lows, close: closes,
+    name: 'OHLC',
+    hovertemplate: '%{x}<br>O: %{open:.2f}<br>H: %{high:.2f}<br>L: %{low:.2f}<br>C: %{close:.2f}<extra></extra>',
+    increasing: {line: {color: 'rgba(64,192,128,0.9)', width: 1}, fillcolor: 'rgba(64,192,128,0.6)'},
+    decreasing: {line: {color: 'rgba(224,80,80,0.9)',  width: 1}, fillcolor: 'rgba(224,80,80,0.6)'},
+  };
+
+  const shapes = [], annotations = [];
+
+  // NY çizgisi
+  if (nyStartIdx != null && nyStartIdx > 0 && nyStartIdx < hours.length) {
+    shapes.push({
+      type: 'line', x0: hours[nyStartIdx], x1: hours[nyStartIdx],
+      y0: 0, y1: 1, yref: 'paper',
+      line: {color: 'rgba(100,140,255,0.5)', width: 1, dash: 'dash'}
+    });
+    annotations.push({
+      x: hours[nyStartIdx], y: 1.04, yref: 'paper',
+      text: `NY ${hours[nyStartIdx]}`, showarrow: false,
+      font: {color: 'rgba(100,140,255,0.8)', size: 9}
+    });
+  }
+
+  // Entry çizgisi
+  if (entry != null) {
+    shapes.push({
+      type: 'line', x0: 0, x1: 1, xref: 'paper', y0: entry, y1: entry,
+      line: {color: 'rgba(212,160,64,0.7)', width: 1.5, dash: 'dash'}
+    });
+    annotations.push({
+      x: 1, xref: 'paper', y: entry, text: `Entry $${entry.toFixed(2)}`,
+      showarrow: false, xanchor: 'left',
+      font: {color: '#d4a040', size: 10}
+    });
+  }
+
+  // SL/TP çizgileri
+  if (levels && levels.length) {
+    const best = levels.find(l => l.best) || levels[levels.length - 1];
+    const lines = [
+      [best.sl,  `SL $${best.sl.toFixed(2)}`,           'rgba(224,80,80,0.75)'],
+      [best.tp2, `TP1 (1:2R) $${best.tp2.toFixed(2)}`,  'rgba(64,192,128,0.75)'],
+      [best.tp3, `TP2 (1:3R) $${best.tp3.toFixed(2)}`,  'rgba(100,255,180,0.75)'],
+    ];
+    for (const [price, label, color] of lines) {
+      shapes.push({
+        type: 'line', x0: 0, x1: 1, xref: 'paper', y0: price, y1: price,
+        line: {color, width: 1, dash: 'dot'}
+      });
+      annotations.push({
+        x: 1, xref: 'paper', y: price, text: label,
+        showarrow: false, xanchor: 'left',
+        font: {color, size: 9}
+      });
+    }
+  }
+
+  const layout = Object.assign({}, CHART_LAYOUT_BASE, {
+    height,
+    shapes, annotations,
+    title: title ? {text: title, font: {color: '#e8e8f0', size: 13}} : undefined,
+  });
+  return {data: [trace], layout};
+}
+
+
+// ═══════════════════════════════════════════════════════
+// UI HELPERS
+// ═══════════════════════════════════════════════════════
+function pctSign(v) { return (v >= 0 ? '+' : '') + v.toFixed(2) + '%'; }
+
+const DIR_LABEL = {up: '↑ YUKARI', down: '↓ AŞAĞI', neutral: '— NÖTR'};
+const DIR_COLOR = {up: '#40c080', down: '#e05050', neutral: '#606078'};
+const DIR_ARROW = {up: '↑', down: '↓', neutral: '—'};
+const CARD_BORDER = {up: '#40c080', down: '#e05050', neutral: '#404055'};
+
+function toast(msg, isErr) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3000);
+}
+
+function setProgress(pct, msg) {
+  const wrap = document.getElementById('progress-bar-wrap');
+  const bar  = document.getElementById('progress-bar');
+  const txt  = document.getElementById('progress-text');
+  wrap.style.display = pct < 100 ? 'block' : 'none';
+  bar.style.width = pct + '%';
+  txt.textContent = msg || '';
+}
+
+
+// ═══════════════════════════════════════════════════════
+// CSV LOAD
+// ═══════════════════════════════════════════════════════
+function loadCsv(file) {
+  const reader = new FileReader();
+  reader.onload = async e => {
+    const text = e.target.result;
+    toast('CSV okunuyor...');
+
+    // Parse
+    const rows = parseCsv(text);
+    if (rows.length < 50) { toast('Hata: Yeterli satır yok (min 50)', true); return; }
+
+    // Build DB
+    toast('Veritabanı oluşturuluyor...');
+    await new Promise(r => setTimeout(r, 10));
+    const db = buildDb(rows);
+    if (db.length < 10) { toast('Hata: Yeterli gün yok (min 10)', true); return; }
+
+    state.rows = rows; state.db = db;
+
+    // Date select'i doldur
+    const dateSelect = document.getElementById('date-select');
+    dateSelect.innerHTML = '';
+    const allDates = [...new Set(rows.map(r => r.date))].sort();
+    // En son 90 günü listele (geriye dönük)
+    const recentDates = allDates.slice(-90).reverse();
+    for (const d of recentDates) {
+      const opt = document.createElement('option');
+      opt.value = d; opt.textContent = d;
+      dateSelect.appendChild(opt);
+    }
+
+    document.getElementById('ctrl-section').style.display = 'block';
+    document.getElementById('csv-name').textContent = `✓ ${file.name} · ${db.length} gün`;
+    toast(`${rows.length} satır · ${db.length} gün yüklendi`);
+  };
+  reader.readAsText(file);
+}
+
+
+// ═══════════════════════════════════════════════════════
+// ANALYSIS RUN
+// ═══════════════════════════════════════════════════════
+async function runAnalysis() {
+  if (!state.rows || !state.db) { toast('Önce CSV yükleyin', true); return; }
+
+  const date  = document.getElementById('date-select').value;
+  const topN  = parseInt(document.getElementById('topn-slider').value);
+  const btn   = document.getElementById('btn-analyze');
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Hesaplanıyor...';
+  document.getElementById('empty-state').style.display = 'none';
+  document.getElementById('results').style.display = 'none';
+
+  try {
+    const result = await findMatches(date, state.db, state.rows, topN, (done, total) => {
+      const pct = Math.round(done / total * 100);
+      setProgress(pct, `${done} / ${total} gün karşılaştırıldı`);
+    });
+
+    if (!result) {
+      toast('Bu tarih için yeterli Pre-NY verisi yok', true);
+      document.getElementById('empty-state').style.display = 'flex';
+      return;
+    }
+
+    state.result = result;
+    state.selectedCard = null;
+    renderResults(result);
+    toast(`✓ ${result.matches.length} benzer gün bulundu`);
+  } catch (err) {
+    toast('Hata: ' + err.message, true);
+    console.error(err);
+    document.getElementById('empty-state').style.display = 'flex';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = '▶ ANALİZ ET';
+    setProgress(100, '');
+  }
+}
+
+
+// ═══════════════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════════════
+function renderResults(result) {
+  const { query: q, prediction: pred, levels, matches } = result;
+
+  // Topbar
+  document.getElementById('tb-date').textContent = `${q.date} · ${q.weekday} · NY ${q.ny_open}:00 TR`;
+  document.getElementById('tb-days').textContent = `${state.db.length} gün DB`;
+  const badge = document.getElementById('tb-badge');
+  badge.textContent = DIR_LABEL[pred.direction];
+  badge.className = 'tb-badge ' + pred.direction;
+  badge.style.display = 'inline-block';
+
+  // Stats sidebar
+  document.getElementById('s-entry').textContent  = `$${q.entry}`;
+  document.getElementById('s-range').textContent  = `$${q.pre_range}`;
+  document.getElementById('s-atr').textContent    = `$${q.atr}`;
+  document.getElementById('s-mum').textContent    = q.candle_count;
+  document.getElementById('s-asia').textContent   = pctSign(q.asia_pct);
+  document.getElementById('s-london').textContent = pctSign(q.london_pct);
+  document.getElementById('s-rsi').textContent    = q.rsi != null ? q.rsi.toFixed(1) : '—';
+  document.getElementById('stats-section').style.display = 'block';
+
+  // SL/TP
+  if (levels.length) {
+    let html = '';
+    for (const lv of levels) {
+      const bestCls = lv.best ? ' best' : '';
+      const star    = lv.best ? '<span class="star">★</span>' : '<span class="nostar"></span>';
+      html += `<div class="sltp-row${bestCls}">
+        ${star}
+        <span class="col-name">${lv.name}</span>
+        <span class="sl">$${lv.sl}</span>
+        <span class="tp2">$${lv.tp2}</span>
+        <span class="tp3">$${lv.tp3}</span>
+      </div>`;
+    }
+    document.getElementById('sltp-rows').innerHTML = html;
+    document.getElementById('sltp-section').style.display = 'block';
+  }
+
+  // Prediction card
+  const dc = DIR_COLOR[pred.direction];
+  const card = document.getElementById('pred-card');
+  card.style.borderLeftColor = dc;
+  document.getElementById('pred-dir').style.color = dc;
+  document.getElementById('pred-dir').textContent = DIR_LABEL[pred.direction];
+  document.getElementById('pred-meta').innerHTML =
+    `<span style="color:${dc};font-weight:700">%${pred.confidence}</span> güven · ` +
+    `${pred.total} benzer gün · Ort. hareket ` +
+    `<span style="color:var(--gold);font-weight:700">${pctSign(pred.avg_move_pct)}</span> · ` +
+    `Ort. range <span style="color:var(--gold);font-weight:700">$${pred.avg_range.toFixed(1)}</span>`;
+
+  // Metrics
+  const t = pred.total || 1;
+  document.getElementById('m-up').textContent      = pred.up_count;
+  document.getElementById('m-up-pct').textContent  = `${Math.round(pred.up_count / t * 100)}%`;
+  document.getElementById('m-down').textContent    = pred.down_count;
+  document.getElementById('m-down-pct').textContent= `${Math.round(pred.down_count / t * 100)}%`;
+  document.getElementById('m-neu').textContent     = pred.neutral_count;
+  document.getElementById('m-neu-pct').textContent = `${Math.round(pred.neutral_count / t * 100)}%`;
+
+  // Main chart title
+  document.getElementById('main-chart-title').innerHTML =
+    `${q.date} · Pre-NY + NY Grafiği`;
+
+  // Main chart
+  const allOhlc = [...(q.pre_ohlc || []), ...(q.ny_ohlc || [])];
+  const nyIdx   = (q.pre_ohlc || []).length;
+  const { data, layout } = makeCandleFig(
+    allOhlc, q.ny_ohlc.length ? nyIdx : null,
+    q.entry, levels, '', 360
+  );
+  Plotly.react('main-chart', data, layout, {scrollZoom: true, displayModeBar: false, responsive: true});
+
+  // Cards grid
+  const grid = document.getElementById('cards-grid');
+  document.getElementById('cards-count').textContent = `· ${matches.length} gün`;
+  grid.innerHTML = '';
+  matches.forEach((m, i) => {
+    const card = document.createElement('div');
+    card.className = 'match-card';
+    card.style.borderLeftColor = CARD_BORDER[m.direction];
+    card.dataset.idx = i;
+    card.innerHTML = `
+      <div class="c-date">${m.date} · ${m.weekday}</div>
+      <div class="c-sim">%${m.similarity.toFixed(1)} benzerlik</div>
+      <div class="c-dir ${m.direction}">${DIR_ARROW[m.direction]} ${DIR_LABEL[m.direction]}</div>
+      <div class="c-move">${pctSign(m.ny_move_pct)} · $${m.ny_range.toFixed(1)} range</div>
+    `;
+    card.addEventListener('click', () => selectCard(i));
+    grid.appendChild(card);
+  });
+
+  document.getElementById('detail-panel').style.display = 'none';
+  document.getElementById('results').style.display = 'block';
+}
+
+function selectCard(idx) {
+  state.selectedCard = idx;
+  const matches = state.result.matches;
+  const m = matches[idx];
+
+  // Card highlight
+  document.querySelectorAll('.match-card').forEach((el, i) => {
+    el.classList.toggle('selected', i === idx);
+  });
+
+  // Detail header
+  const dc = DIR_COLOR[m.direction];
+  const panel = document.getElementById('detail-panel');
+  panel.style.display = 'block';
+
+  const header = document.getElementById('detail-header');
+  header.style.borderLeftColor = CARD_BORDER[m.direction];
+
+  document.getElementById('dh-date').textContent = `${m.date} · ${m.weekday}`;
+  document.getElementById('dh-dir').style.color = dc;
+  document.getElementById('dh-dir').textContent = `${DIR_ARROW[m.direction]} ${DIR_LABEL[m.direction]}`;
+  document.getElementById('dh-stats').innerHTML =
+    `<div><span style="color:var(--text3)">Hareket </span><b style="color:${dc}">${pctSign(m.ny_move_pct)}</b></div>
+     <div><span style="color:var(--text3)">Range </span><b style="color:var(--gold)">$${m.ny_range.toFixed(1)}</b></div>
+     <div><span style="color:var(--text3)">Benzerlik </span><b style="color:var(--gold)">%${m.similarity.toFixed(1)}</b></div>`;
+
+  // Detail chart
+  const allOhlc = [...(m.pre_ohlc || []), ...(m.ny_ohlc || [])];
+  const nyIdx   = (m.pre_ohlc || []).length;
+  const title   = `${m.date} · ${m.weekday} · ${DIR_LABEL[m.direction]} · ${pctSign(m.ny_move_pct)}`;
+  const { data, layout } = makeCandleFig(allOhlc, nyIdx, null, null, title, 260);
+  Plotly.react('detail-chart', data, layout, {scrollZoom: true, displayModeBar: false, responsive: true});
+
+  panel.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+
+// ═══════════════════════════════════════════════════════
+// EVENT LISTENERS
+// ═══════════════════════════════════════════════════════
+document.addEventListener('DOMContentLoaded', () => {
+  const fileInput = document.getElementById('file-input');
+  const dropZone  = document.getElementById('drop-zone');
+
+  fileInput.addEventListener('change', e => {
+    if (e.target.files[0]) loadCsv(e.target.files[0]);
+  });
+
+  // Drag & drop
+  dropZone.addEventListener('dragover', e => { e.preventDefault(); dropZone.classList.add('drag-over'); });
+  dropZone.addEventListener('dragleave', () => dropZone.classList.remove('drag-over'));
+  dropZone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropZone.classList.remove('drag-over');
+    const file = e.dataTransfer.files[0];
+    if (file && file.name.endsWith('.csv')) loadCsv(file);
+    else toast('Lütfen .csv dosyası yükleyin', true);
+  });
+
+  // Enter key on date select
+  document.getElementById('date-select').addEventListener('keydown', e => {
+    if (e.key === 'Enter') runAnalysis();
+  });
+});
+</script>
+</body>
+</html>
